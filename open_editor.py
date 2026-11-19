@@ -1,30 +1,30 @@
 #!/usr/bin/env python3
 # ================================================================
-# open_editor.py — jalankan editor mind map draft TC di browser.
+# open_editor.py — run the draft TC mind map editor in the browser.
 # Sub-project: PRD to Draft TC
 # ================================================================
-"""Buka `mindmap-editor.html` lewat server lokal, lalu arahkan browser ke situ.
+"""Serve `mindmap-editor.html` from a local server, then point the browser at it.
 
-Dijalankan di background, URL-nya tetap terbaca: setiap baris dicetak dengan `flush=True`.
-Tanpa itu Python menahan buffer stdout untuk keluaran non-terminal — terukur 2026-08-28, saat
-perintah ini dipindahkan ke background oleh harness dan file output-nya tinggal 0 byte, jadi
-alamat yang harus dibuka QA tidak pernah muncul di mana pun.
+When run in the background, the URL is still readable: every line is printed with `flush=True`.
+Without it Python buffers stdout for non-terminal output — measured 2026-08-28, when this command
+was moved to the background by the harness and its output file stayed at 0 bytes, so the address
+QA needed to open never appeared anywhere.
 
-KENAPA PERLU SERVER, padahal editornya satu file HTML yang bisa di-klik dua kali:
+WHY A SERVER, when the editor is a single HTML file you can just double-click:
 
-  **File System Access API** (`showSaveFilePicker`) — yang membuat tombol Simpan MENIMPA berkas
-  `.mm` aslinya, bukan menumpuk unduhan di folder Downloads — hanya aktif di *secure context*.
-  `http://localhost` termasuk secure context; `file://` tergantung browser dan versinya. Jadi
-  membuka lewat server ini adalah cara yang PASTI memberi QA tombol Simpan yang sesungguhnya.
+  The **File System Access API** (`showSaveFilePicker`) — which makes the Save button OVERWRITE the
+  original `.mm` file instead of piling downloads into the Downloads folder — only works in a
+  *secure context*. `http://localhost` is a secure context; `file://` depends on the browser and its
+  version. So opening through this server is the GUARANTEED way to give QA a real Save button.
 
-Membuka file HTML-nya langsung tetap bisa. Yang hilang cuma kemampuan menimpa berkas: Simpan akan
-mengunduh salinan, dan QA harus memindahkannya sendiri. Editor menyebutkan itu di status bar-nya.
+Opening the HTML file directly still works. All you lose is the ability to overwrite the file:
+Save downloads a copy, and QA has to move it by hand. The editor says so in its status bar.
 
-    python tools/open_editor.py                # port bebas, langsung buka browser
-    python tools/open_editor.py --port 8787
-    python tools/open_editor.py --no-browser   # untuk dipakai dari dalam IDE
+    python open_editor.py                # any free port, opens the browser
+    python open_editor.py --port 8787
+    python open_editor.py --no-browser   # for use from inside an IDE
 
-Ctrl+C untuk berhenti.
+Ctrl+C to stop.
 """
 from __future__ import annotations
 
@@ -54,18 +54,18 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *a, **kw):
         super().__init__(*a, directory=str(HERE), **kw)
 
-    def log_message(self, fmt, *args):        # tenang — QA tidak perlu melihat log request
+    def log_message(self, fmt, *args):        # quiet — QA does not need to see request logs
         pass
 
 
 def main(argv: list[str]) -> int:
-    ap = argparse.ArgumentParser(description="Buka editor mind map draft TC.")
+    ap = argparse.ArgumentParser(description="Open the draft TC mind map editor.")
     ap.add_argument("--port", type=int)
     ap.add_argument("--no-browser", action="store_true")
     a = ap.parse_args(argv)
 
     if not (HERE / PAGE).exists():
-        print(f"[REFUSED] {PAGE} tidak ada di {HERE}", file=sys.stderr)
+        print(f"[REFUSED] {PAGE} not found in {HERE}", file=sys.stderr)
         return 1
 
     port = free_port(a.port)
@@ -75,13 +75,13 @@ def main(argv: list[str]) -> int:
     with socketserver.TCPServer(("127.0.0.1", port), Handler) as srv:
         print(f"editor : {url}", flush=True)
         print(f"folder : {HERE}", flush=True)
-        print("Simpan di editor akan MENIMPA berkas .mm yang dibuka (Chrome/Edge).", flush=True)
-        print("Ctrl+C untuk berhenti.\n", flush=True)
+        print("Save in the editor will OVERWRITE the opened .mm file (Chrome/Edge).", flush=True)
+        print("Ctrl+C to stop.\n", flush=True)
         if not a.no_browser:
             threading.Timer(0.4, lambda: webbrowser.open(url)).start()
         with contextlib.suppress(KeyboardInterrupt):
             srv.serve_forever()
-    print("\nberhenti.", flush=True)
+    print("\nstopped.", flush=True)
     return 0
 
 
