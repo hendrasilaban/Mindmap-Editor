@@ -1,0 +1,1083 @@
+<!doctype html>
+<html lang="id">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Draft TC Editor — PRD to Draft TC</title>
+<!--
+  Editor mind map untuk REVIEW MANUAL draft test case (.mm) — sub-project `PRD to Draft TC`.
+  Version: 1.19
+
+  Dibuat dari editor referensi QA. Perbedaannya semua berasal dari kontrak pipeline ini —
+  `.claude/skills/generate-draft-tc/references/draft-template.md`, otoritas bentuk `.mm`:
+
+    1. newline di atribut XML ditulis `&#10;` — TANPA ini setiap bundle Int hancur (XML
+       menormalkan newline literal menjadi spasi). Ini bug nomor satu di editor referensi.
+    2. warna ditulis hanya di folder, entry point dan type node (kosmetik); leaf tidak pernah
+       berwarna.
+    3. penanda yang ditulis editor ini: `r` = ✅ regression di ujung baris pertama leaf — HANYA
+       di test case SYS dan E2E (template §7); di UI / INT `r` menolak, dan ✅ yang sudah ada di
+       sana bisa dilepas dengan `r` lalu disebut pra-periksa. Saat
+       MEMBUKA `.mm`, teks node dibaca seperti consumer membacanya (template §2
+       dan §7): atribut `TEXT`, atau — kalau `TEXT` tidak ada — `<richcontent TYPE="NODE">` milik
+       node itu sendiri (blok XHTML menjadi baris); icon `button_ok` / `checked` / `yes` di sebuah
+       leaf menjadi ✅. Icon lain tidak dibawa: tidak ada pembaca yang memakainya.
+    4. leaf boleh MULTI-BARIS (Shift+Enter) — leaf Int adalah daftar bernomor.
+    5. tidak ada placeholder `(kosong)` — node tanpa teks ditolak, bukan diberi nama palsu.
+    6. sadar pohon template (draft-template.md §1): feature -> sub process | Additional |
+       Archive -> [tingkat -> ...] -> type node -> [group] -> test case, dan feature -> E2E -> test
+       case (case End to End LANGSUNG di folder E2E, tanpa entry point dan type node). Di antara
+       folder dan type node-nya ada sebanyak tingkat section Testr feature itu — nol, satu
+       (halaman) atau lebih. Folder E2E / Additional / Archive dikenali dari POSISINYA (anak
+       langsung feature) dan PERANNYA (`Additional Case` adalah folder Additional), bukan dari
+       teks persis — `E2E` juga kata rung — dan namanya disimpan apa adanya. Tab di feature membuat sub process, di folder E2E membuat test case,
+       di sub process / Additional / Archive membuat entry point, di entry point membuat TYPE
+       NODE (di Additional dimulai SYS, dan rung-nya hanya berganti SYS <-> E2E: Additional hanya
+       case dependency System Testing dan End to End), sehingga test case tidak pernah lahir di luar
+       rung-nya. Nomor entry point (tingkat pertama sub process, berlanjut
+       satu feature; sub process, tingkat yang lebih dalam, topik Additional dan entry point Archive tidak bernomor),
+       hitungan `(n)` dan `(Total: N TCs)` DIHITUNG ULANG saat menyimpan.
+    7. simpan menimpa file aslinya (File System Access API) kalau browser mendukung.
+    8. membuka `.mm` dan `.mup`, MENYIMPAN `.mm` saja — format project ini. Berkas yang tidak
+       terbaca sebagai XML FreeMind maupun JSON MindMup ditolak saat dibuka, dengan alasannya.
+       `.mup` hanya DIBACA (lihat 13): berkas `.mup` aslinya tidak pernah ditimpa.
+    9. peta BESAR: roda mouse MENGGESER (zoom di Ctrl+roda); autofit menghitung batas kiri-atas dan
+       menahan zoom minimum 35% supaya teks terbaca; peta di atas 60 TC dibuka RINGKAS (cabang di
+       bawah type node dilipat); dialog Buka tidak memfilter ekstensi, karena draft nyata bisa
+       tanpa ekstensi.
+   10. render dua tahap: gambar, baca tinggi SEBENARNYA dari DOM, gambar ulang kalau ada yang lebih
+       tinggi — node tidak tumpang-tindih, juga kalau CSS-nya diubah.
+   11. memilih node hanya menukar kelas CSS (`markSel`), tidak membangun ulang DOM — jadi
+       klik-ganda selalu mendarat di elemen yang sama dan masuk mode edit (plus fallback
+       `elementFromPoint` dan deteksi klik-ganda dari `mousedown`). Kelas `.editing`
+       mengembalikan `user-select` ke `text`, fokus dipasang di frame berikutnya, dan klik di dalam
+       teks yang sedang diedit tidak memilih ulang node.
+   12. lebar node bisa diubah: tarik pegangan di sisi kanan node terpilih, atau `[` / `]`;
+       `Shift+[` / `Shift+]` mengubah lebar default SEMUA node; `0` mengembalikan lebar satu node.
+       Lebar disimpan di localStorage per berkas, BUKAN di `.mm` — `.mm` adalah artefak pipeline
+       yang bentuknya dikontrak, dan preferensi tampilan milik masing-masing pembaca.
+   13. `.mup` (MindMup, JSON) dibuka sebagai draft lama yang perlu diubah ke `.mm`. Format dikenali
+       dari ISI berkas (`{` = JSON), bukan ekstensinya. Setelah `.mup` dibuka, Simpan pertama SELALU
+       meminta nama `.mm` baru (`Draft_x.mup` -> `Draft_x.mm`) — handle `.mup`-nya dibuang, jadi
+       XML tidak pernah tertulis ke berkas `.mup`. Aturan bacanya ada di komentar `fromMup`.
+   14. ukuran node diukur dengan node SUNGGUHAN (kelas peran + baris "N TC tersembunyi"), jadi
+       tulisan tidak meluap dari kotak type node yang dilipat; dan ukuran jendela yang berubah
+       memicu fit ulang selama QA belum menggeser / mem-zoom (lihat `sizeOf` dan `autoFit`).
+
+  Salinan ini BERDIRI SENDIRI — dipindahkan dari `tools/` pipeline supaya tidak bergantung padanya.
+  Editor di `tools/` pipeline tetap `.mm` saja, dan itu benar untuk pipeline.
+
+  Pra-periksa di sini BUKAN otoritas. Otoritasnya:
+      .claude/skills/generate-draft-tc/scripts/validate_draft.py
+  Setiap edit manual WAJIB di-Prove ulang dan di-Audit ulang.
+-->
+<style>
+:root{
+  --ink:#161c24; --ink-2:#4a5561; --ink-3:#8a949e;
+  --paper:#f7f6f2; --card:#ffffff; --rule:#dcdad3;
+  --grid:rgba(22,28,36,.045);
+  --accent:#2f6f6b;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+}
+@media (prefers-color-scheme:dark){
+  :root{--ink:#e8e6e0;--ink-2:#a9b1ba;--ink-3:#6d7680;--paper:#14181d;--card:#1c2128;
+        --rule:#2c333b;--grid:rgba(232,230,224,.05);--accent:#5fb0a8;}
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;overflow:hidden;background:var(--paper);color:var(--ink);font-family:var(--sans)}
+
+#bar{position:fixed;top:0;left:0;right:0;height:46px;display:flex;align-items:center;gap:4px;
+  padding:0 10px;background:var(--card);border-bottom:1px solid var(--rule);z-index:30;
+  overflow-x:auto;white-space:nowrap}
+#bar .brand{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--ink-3);margin-right:12px;flex:none}
+button.tb{font:inherit;font-size:13px;color:var(--ink);background:transparent;border:1px solid transparent;
+  padding:5px 9px;border-radius:6px;cursor:pointer;flex:none}
+button.tb:hover{background:var(--paper);border-color:var(--rule)}
+button.tb:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.sep{width:1px;height:20px;background:var(--rule);margin:0 5px;flex:none}
+#count{font-family:var(--mono);font-size:11px;color:var(--ink-2);flex:none;padding-left:10px}
+#status{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--ink-3);flex:none;padding-left:12px}
+
+#viewport{position:fixed;inset:46px 0 0 0;overflow:hidden;cursor:grab;
+  background-image:radial-gradient(var(--grid) 1px,transparent 1px);background-size:22px 22px}
+#viewport.pan{cursor:grabbing}
+#world{position:absolute;top:0;left:0;transform-origin:0 0}
+#links{position:absolute;top:0;left:0;overflow:visible;pointer-events:none}
+
+.node{position:absolute;background:var(--card);border:1px solid var(--rule);border-left-width:3px;
+  border-radius:7px;padding:7px 11px;font-size:14px;line-height:1.35;color:var(--ink);
+  cursor:default;user-select:none;transition:box-shadow .12s,border-color .12s}
+.node:hover{border-color:var(--ink-3)}
+.node.sel{box-shadow:0 0 0 2px var(--accent);border-color:var(--accent)}
+.node.root{background:var(--ink);color:var(--paper);border-color:var(--ink);border-left-width:1px;
+  font-weight:500;border-radius:20px;padding:9px 18px}
+.node.type{background:#fff4ce;color:#161c24;font-family:var(--mono);font-size:12px;letter-spacing:.06em}
+.node.section{font-weight:500}
+.node.entry{background:#eef3fb}
+.node.bad{border-color:#b3402f}
+.node.editing{cursor:text;user-select:text;-webkit-user-select:text}
+/* WAJIB: `.node` punya user-select:none supaya klik-tarik memindahkan kanvas, bukan menyeleksi
+   teks. Tapi di Chrome, user-select:none pada leluhur membuat caret TIDAK BISA masuk ke elemen
+   contenteditable di dalamnya — jadi klik dua kali terlihat tidak melakukan apa-apa. Elemen yang
+   sedang diedit harus mengembalikannya ke `text`. Ini penyebab bug 2026-08-28. */
+.node.editing .txt{user-select:text;-webkit-user-select:text;cursor:text}
+.node .txt{outline:none;white-space:pre-wrap;word-break:break-word}
+.node .meta{display:block;font-family:var(--mono);font-size:10px;letter-spacing:.06em;
+  color:var(--ink-3);margin-top:3px;overflow-wrap:anywhere}
+/* overflow-wrap: jaring pengaman kalau QA mempersempit node terlipat di bawah lebar baris meta-nya —
+   kata dipotong di dalam kotak, bukan meluap keluar. Lebar normalnya sudah ikut diukur (sizeOf). */
+.node.root .meta{color:var(--ink-3)}
+.reg{font-family:var(--mono);font-size:11px;margin-right:5px}
+
+.fold{position:absolute;width:15px;height:15px;border-radius:50%;background:var(--card);
+  border:1px solid var(--rule);font-family:var(--mono);font-size:9px;line-height:13px;
+  text-align:center;color:var(--ink-2);cursor:pointer;user-select:none;z-index:2}
+.fold:hover{border-color:var(--accent);color:var(--accent)}
+
+.grip{position:absolute;width:9px;border-radius:3px;background:var(--accent);opacity:.28;
+  cursor:ew-resize;z-index:3}
+.grip:hover{opacity:.75}
+
+#help{position:fixed;right:12px;bottom:12px;background:var(--card);border:1px solid var(--rule);
+  border-radius:8px;padding:11px 13px;font-size:12px;color:var(--ink-2);z-index:20;max-width:246px;
+  line-height:1.65}
+#help b{font-family:var(--mono);font-size:11px;color:var(--ink);font-weight:600}
+#help .hd{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+#help .hd span{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
+#help button{background:none;border:none;color:var(--ink-3);cursor:pointer;font-size:14px;padding:0 2px}
+#help.min .body{display:none}
+
+#panel{position:fixed;left:12px;bottom:12px;background:var(--card);border:1px solid var(--rule);
+  border-radius:8px;padding:11px 13px;font-size:12px;color:var(--ink-2);z-index:20;max-width:520px;
+  max-height:44vh;overflow:auto;line-height:1.6;display:none}
+#panel.on{display:block}
+#panel .hd{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+#panel .hd span{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
+#panel button{background:none;border:none;color:var(--ink-3);cursor:pointer;font-size:14px}
+#panel .row{font-family:var(--mono);font-size:11px;padding:3px 0;border-top:1px solid var(--rule)}
+#panel .row.err{color:#b3402f}
+#panel .ok{color:#2f7d4f}
+#panel .auth{margin-top:8px;font-size:11px;color:var(--ink-3)}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+</style>
+
+<h1 class="sr-only">Editor mind map draft test case, dengan pra-periksa struktur dan simpan ke berkas .mm</h1>
+
+<div id="bar">
+  <span class="brand">Draft TC Editor</span>
+  <button class="tb" id="bOpen" title="Buka draft .mm, atau draft lama .mup (disimpan sebagai .mm)">Buka .mm / .mup</button>
+  <button class="tb" id="bSave">Simpan</button>
+  <button class="tb" id="bSaveAs">Simpan sebagai…</button>
+  <span class="sep"></span>
+  <button class="tb" id="bCheck">Pra-periksa</button>
+  <button class="tb" id="bNarrow" title="Persempit node terpilih ( [ )">Lebar −</button>
+  <button class="tb" id="bWider" title="Lebarkan node terpilih ( ] )">Lebar +</button>
+  <span class="sep"></span>
+  <button class="tb" id="bFit">Rapikan tampilan</button>
+  <button class="tb" id="bAll">Buka semua cabang</button>
+  <span id="count"></span>
+  <span id="status">siap</span>
+</div>
+
+<div id="viewport"><div id="world"><svg id="links"></svg></div></div>
+
+<div id="panel">
+  <div class="hd"><span>Pra-periksa</span><button id="pClose" aria-label="Tutup">×</button></div>
+  <div id="pBody"></div>
+  <div class="auth">Ini pra-periksa, bukan otoritas. Yang memutuskan:
+    <b>validate_draft.py</b> (Prove, Generate Draft TC) dan <b>review_result_draft.py</b> (Review Result Draft TC).
+    Setiap edit manual wajib di-Prove dan di-Audit ulang.</div>
+</div>
+
+<div id="help">
+  <div class="hd"><span>Tombol</span><button id="hToggle" aria-label="Sembunyikan bantuan">−</button></div>
+  <div class="body">
+    <b>Klik 2x</b> / <b>F2</b> ubah teks<br>
+    <b>Shift+Enter</b> baris baru (bundle Int)<br>
+    <b>Enter</b> node sejajar · <b>Tab</b> node anak<br>
+    <b>t</b> ganti rung type node<br>
+    <b>r</b> tandai ✅ regression (SYS · E2E)<br>
+    <b>Roda</b> geser · <b>Ctrl+Roda</b> zoom<br>
+    <b>PgUp/PgDn</b> geser layar · <b>Home</b> rapikan<br>
+    <b>[</b> <b>]</b> lebar node · <b>0</b> reset<br>
+    <b>Shift+[ ]</b> lebar semua node<br>
+    <b>Del</b> hapus · <b>Space</b> lipat<br>
+    <b>↑↓←→</b> pindah pilihan<br>
+    <b>Ctrl+S</b> simpan
+  </div>
+</div>
+
+<!-- tanpa `accept`: draft nyata bisa TANPA ekstensi sama sekali (contoh: berkas `Dashboard`),
+     dan filter ekstensi justru menyembunyikannya. Format dikenali dari ISI berkas. -->
+<input type="file" id="fileIn" style="display:none">
+
+<script>
+"use strict";
+const PAL=["#2f6f6b","#8a5a3b","#4a5b8f","#7a4a6b","#5c6b3a","#8f5a4a"];
+const HGAP=54, VGAP=13;
+const WRAP_MIN=90, WRAP_MAX=900, WRAP_STEP=40;
+let wrapDefault=300;                 // lebar maksimum default sebelum teks dibungkus
+let widthStore={};                   // judul bersih -> lebar, per berkas (localStorage)
+const SECTION_BG="#d6e4ff", ENTRY_BG="#eef3fb", TYPE_BG="#fff4ce";
+/* Folder di samping sub process — dikenali dari POSISI (anak langsung feature), bukan teks. */
+const RESERVED={E2E:'E2E',ADDITIONAL:'Additional',ARCHIVE:'Archive'};
+const MAX_BUNDLE=10;
+const RUNGS=["UI","INT","SYS","E2E"];
+const RUNG_WORDS=["UI","INT","INTEGRATION","SYS","SYSTEM TESTING","E2E","END TO END","API"];
+
+let doc=null, sel=null, editing=false, handle=null, dirty=false;
+let view={x:0,y:0,k:1};
+const world=document.getElementById('world'), links=document.getElementById('links');
+const vp=document.getElementById('viewport'), statusEl=document.getElementById('status');
+const countEl=document.getElementById('count');
+
+let uid=0; const nid=()=>'n'+(++uid);
+function mk(text){return{id:nid(),text:text||'',children:[],collapsed:false,side:null,w:null};}
+
+/* ---------- peran node: aturan struktur template ---------- */
+function rungOf(n){
+  const base=(n.text||'').split('(')[0].trim().toUpperCase();
+  return RUNG_WORDS.includes(base)?base:null;
+}
+function nameOf(n){
+  return String(n.text||'').replace(/^\s*\d+[.)]\s*/,'').replace(/\s*\(\d+\)\s*$/,'').trim();
+}
+/* Peran folder tetap dari NAMANYA — `Additional Case` (nama Testr sebagian feature) adalah folder Additional;
+   aturan yang sama dengan validate_draft.role_of. */
+function roleOfName(name){
+  const k=String(name||'').replace(/\s+/g,' ').trim().toUpperCase();
+  return k.startsWith('ADDITIONAL')?'Additional':(RESERVED[k]||null);
+}
+function reservedOf(n){ return roleOfName(nameOf(n)); }
+/* Peran dari POSISI di pohon: 0 feature · 1 sub process / folder · lalu tingkat tempatnya (entry
+   point: halaman, dan tingkat di bawahnya) sampai type node — atau, di folder E2E, test case-nya
+   sendiri. `misplaced` = node di tempat yang tidak dikenal template — pra-periksa menyebutnya. */
+function roleOf(n,depth,underType,inE2E){
+  if(depth===0) return 'root';
+  if(depth===1) return reservedOf(n)?'reserved':'process';
+  if(inE2E) return (n.children.length||rungOf(n))?'misplaced':'leaf';   // folder E2E: test case langsung
+  if(rungOf(n)) return 'type';
+  if(underType) return n.children.length?'group':'leaf';
+  return (depth===2||n.children.length)?'entry':'misplaced';
+}
+function isE2EFolder(n,depth){ return depth===1&&reservedOf(n)==='E2E'; }
+function walkRoles(n,depth,underType,fn,inE2E){
+  const role=roleOf(n,depth,underType,inE2E);
+  fn(n,role,depth);
+  const ut=underType||role==='type';
+  const e2e=isE2EFolder(n,depth);
+  n.children.forEach(c=>walkRoles(c,depth+1,ut,fn,e2e));
+}
+function roleMap(){
+  const m=new Map();
+  if(doc) walkRoles(doc,0,false,(n,r,d)=>m.set(n,{role:r,depth:d}));
+  return m;
+}
+/* Test case di bawah sebuah node — menurut PERAN, jadi folder E2E tidak pernah dihitung
+   sebagai type node. Argumen kedua (lama) diabaikan. */
+function leavesUnder(n){
+  const roles=roleMap(), out=[];
+  (function w(x){ const r=roles.get(x); if(r&&r.role==='leaf') out.push(x); x.children.forEach(w); })(n);
+  return out;
+}
+function allLeaves(){ return doc?leavesUnder(doc,false):[]; }
+function cleanTitle(raw){
+  let s=String(raw).replace(/✅/g,'').trim();
+  s=s.split(/\r?\n/)[0];
+  s=s.replace(/^\s*\d+[.)]\s*/,'');
+  s=s.replace(/\s*&\s*/g,' & ');
+  return s.replace(/\s+/g,' ').trim();
+}
+function rungLabel(n){ const r=rungOf(n); return r==='INTEGRATION'?'INT':r==='SYSTEM TESTING'?'SYS':r==='END TO END'?'E2E':r; }
+
+/* ---------- ukur & susun (dari editor referensi) ---------- */
+/* Probe = node SUNGGUHAN: kelas peran yang sama (`root` / `type` / `section` / `entry`) dan isi
+   yang sama, termasuk baris "N TC tersembunyi" di node terlipat. Probe lama meniru `.node` dengan
+   gaya inline 14px dan hanya mengukur JUDUL — type node terlipat (`UI`, judul sependek itu) jadi
+   selebar judulnya, dan kata "tersembunyi" meluap keluar kotak. Terukur 2026-11-18: 33 dari 48 node
+   pada draft `.mup` 124 TC yang dibuka ringkas; peta di atas 60 TC SELALU dibuka ringkas. Lebar
+   dibulatkan KE ATAS: `offsetWidth` membulatkan ke bilangan terdekat, dan kotak yang kurang
+   sepersekian piksel membuat kata terakhir terbungkus ke baris baru. */
+const meas=document.createElement('div');
+meas.setAttribute('aria-hidden','true');
+meas.style.cssText='visibility:hidden;left:-9999px;top:0;transition:none';
+document.body.appendChild(meas);
+function metaText(n){ return leavesUnder(n).length+' TC tersembunyi'; }
+function roleClass(n,info){
+  return (n===doc?' root':'')+(info.role==='type'?' type':'')
+    +(info.role==='process'||info.role==='reserved'?' section':'')+(info.role==='entry'?' entry':'');
+}
+function sizeOf(n,isRoot,cls){
+  meas.className='node'+cls;
+  meas.textContent='';
+  const t=document.createElement('span'); t.className='txt'; t.textContent=n.text||' ';
+  meas.appendChild(t);
+  if(n.collapsed&&n.children.length){
+    const m=document.createElement('span'); m.className='meta'; m.textContent=metaText(n);
+    meas.appendChild(m);
+  }
+  meas.style.width='max-content';
+  const cap=n.w||(isRoot?420:wrapDefault);
+  let w=Math.ceil(meas.getBoundingClientRect().width);
+  if(n.w||w>cap){ meas.style.width=cap+'px'; w=cap; }
+  let h=Math.ceil(meas.getBoundingClientRect().height);
+  // Tinggi SEBENARNYA dari render sebelumnya menang atas taksiran probe (lihat syncHeights).
+  if(n.__mhSig===sigOf(n)&&n.__mh>h) h=n.__mh;
+  return {w:Math.max(w,isRoot?90:52), h};
+}
+/* Tanda tangan keadaan yang MEMENGARUHI tinggi sebuah node. Kalau salah satunya berubah,
+   tinggi terukur yang lama tidak berlaku lagi dan harus diukur ulang. */
+function sigOf(n){ return (n.text||'')+'|'+(n.collapsed?'c':'')+'|'+(n.w||0); }
+function syncHeights(){
+  let changed=false;
+  world.querySelectorAll('.node').forEach(el=>{
+    const n=findNode(doc,el.dataset.id);
+    if(!n||!n.__s) return;
+    const h=el.offsetHeight;
+    if(h>n.__s.h+0.5){ n.__mh=h; n.__mhSig=sigOf(n); changed=true; }
+  });
+  return changed;
+}
+
+function layout(root){
+  const nodes=[], roles=roleMap();
+  const cls=n=>roleClass(n,roles.get(n)||{role:'leaf'});
+  root.__s=sizeOf(root,true,cls(root));
+  const kids=root.children;
+  kids.forEach(c=>{ c.side='right'; });      // draft kita satu arah: section selalu ke kanan
+  function measTree(n,depth){
+    n.__s=sizeOf(n,false,cls(n)); n.__depth=depth;
+    if(n.collapsed||!n.children.length){ n.__h=n.__s.h+VGAP; return n.__h; }
+    let s=0; n.children.forEach(c=>s+=measTree(c,depth+1));
+    n.__h=Math.max(s,n.__s.h+VGAP); return n.__h;
+  }
+  let rh=0; kids.forEach(c=>rh+=measTree(c,1));
+  const cx=140, cy=Math.max(rh,root.__s.h)/2+60;
+  root.__x=cx; root.__y=cy-root.__s.h/2; root.__depth=0; root.__col=null;
+  nodes.push(root);
+  function place(n,xEdge,top,col){
+    n.__col=col;
+    n.__x=xEdge; n.__y=top+n.__h/2-n.__s.h/2;
+    nodes.push(n);
+    if(n.collapsed||!n.children.length) return;
+    let t=top+(n.__h-n.children.reduce((a,c)=>a+c.__h,0))/2;
+    const nx=n.__x+n.__s.w+HGAP;
+    n.children.forEach(c=>{ place(c,nx,t,col); t+=c.__h; });
+  }
+  let t=cy-rh/2;
+  kids.forEach((c,i)=>{ place(c,cx+root.__s.w+HGAP,t,PAL[i%PAL.length]); t+=c.__h; });
+  return nodes;
+}
+
+/* ---------- render ---------- */
+let badSet=new Set();
+let _pass=0;
+function render(){
+  const nodes=layout(doc), roles=roleMap();
+  world.querySelectorAll('.node,.fold').forEach(e=>e.remove());
+  let paths='';
+  nodes.forEach(n=>{
+    const info=roles.get(n)||{role:'leaf'};
+    const el=document.createElement('div');
+    // kelas peran = kelas probe di sizeOf; ukuran terukur dan ukuran tampil berasal dari CSS yang sama
+    el.className='node'+roleClass(n,info)+(n===sel?' sel':'')+(badSet.has(n.id)?' bad':'');
+    el.style.left=n.__x+'px'; el.style.top=n.__y+'px'; el.style.width=n.__s.w+'px';
+    if(n.__col&&n!==doc) el.style.borderLeftColor=n.__col;
+    el.dataset.id=n.id;
+    const t=document.createElement('span'); t.className='txt'; t.textContent=n.text;
+    el.appendChild(t);
+    if(info.role==='leaf'&&/✅/.test(n.text)===false&&false){}
+    if(n.collapsed&&n.children.length){
+      const b=document.createElement('span'); b.className='meta';
+      b.textContent=metaText(n);
+      el.appendChild(b);
+    }
+    world.appendChild(el);
+    if(n.children.length&&n!==doc){
+      const f=document.createElement('div'); f.className='fold';
+      f.style.left=(n.__x+n.__s.w+3)+'px';
+      f.style.top=(n.__y+n.__s.h/2-7.5)+'px';
+      f.textContent=n.collapsed?'+':'−'; f.dataset.fold=n.id;
+      world.appendChild(f);
+    }
+    if(!n.collapsed) n.children.forEach(c=>{
+      const x1=n.__x+n.__s.w, y1=n.__y+n.__s.h/2, x2=c.__x, y2=c.__y+c.__s.h/2, mx=(x1+x2)/2;
+      paths+=`<path d="M${x1} ${y1} C${mx} ${y1} ${mx} ${y2} ${x2} ${y2}" fill="none" stroke="${c.__col||'#888'}" stroke-width="1.4" opacity=".55"/>`;
+    });
+  });
+  const W=Math.max(...nodes.map(n=>n.__x+n.__s.w))+220;
+  const H=Math.max(...nodes.map(n=>n.__y+n.__s.h))+200;
+  links.setAttribute('width',W); links.setAttribute('height',H);
+  links.innerHTML=paths;
+  world.style.width=W+'px'; world.style.height=H+'px';
+
+  /* TAHAP DUA. Node terlipat membawa baris "N TC tersembunyi", type node memakai font mono 12px,
+     dan pembungkusan baris bisa berbeda beberapa piksel dari probe — semuanya membuat kotak
+     sungguhan lebih tinggi dari taksiran, dan node di bawahnya tertimpa. Di sini tinggi nyata
+     dibaca dari DOM; kalau ada yang lebih tinggi, gambar ulang dengan angka itu. Dibatasi dua
+     putaran supaya tidak pernah berputar tanpa henti. */
+  if(_pass<2 && syncHeights()){ _pass++; render(); _pass--; return; }
+
+  gripFor(sel);
+  applyView(); tally(); autosave();
+}
+function applyView(){ world.style.transform=`translate(${view.x}px,${view.y}px) scale(${view.k})`; }
+
+function tally(){
+  const per={UI:0,INT:0,SYS:0,E2E:0};
+  let reg=0, total=0, arch=0;
+  (function w(n,depth,underType,rung,folder,inE2E){
+    const role=roleOf(n,depth,underType,inE2E);
+    const r=role==='type'?rungLabel(n):(isE2EFolder(n,depth)?'E2E':rung);
+    const f=depth===1?(reservedOf(n)||''):folder;
+    if(role==='leaf'){ total++; if(r&&per[r]!==undefined) per[r]++; if(/✅/.test(n.text)) reg++; if(f==='Archive') arch++; }
+    n.children.forEach(c=>w(c,depth+1,underType||role==='type',r,f,isE2EFolder(n,depth)));
+  })(doc,0,false,null,'',false);
+  countEl.textContent=`${total} TC · UI ${per.UI} · INT ${per.INT} · SYS ${per.SYS} · E2E ${per.E2E} · ✅ ${reg} · Archive ${arch}`;
+}
+
+/* ---------- lebar node ---------- */
+function widthKey(){
+  return 'drafttc:width:'+String((doc&&doc.text)||'').replace(/\(Total:[^)]*\)/i,'').trim();
+}
+function saveWidths(){
+  try{
+    const m={};
+    (function w(x){ if(x.w) m[cleanTitle(x.text)]=x.w; x.children.forEach(w); })(doc);
+    widthStore=m; localStorage.setItem(widthKey(),JSON.stringify(m));
+  }catch(e){}
+}
+function applyWidths(){
+  try{ widthStore=JSON.parse(localStorage.getItem(widthKey())||'{}'); }catch(e){ widthStore={}; }
+  (function w(x){ const v=widthStore[cleanTitle(x.text)]; if(v) x.w=v; x.children.forEach(w); })(doc);
+}
+function setWidth(n,px){
+  n.w=Math.round(Math.min(WRAP_MAX,Math.max(WRAP_MIN,px)));
+  saveWidths(); render();
+}
+function nudgeWidth(dir,all){
+  if(all){
+    wrapDefault=Math.min(WRAP_MAX,Math.max(WRAP_MIN,wrapDefault+dir*WRAP_STEP));
+    (function w(x){ x.w=null; x.children.forEach(w); })(doc);
+    saveWidths(); render();
+    return flash('lebar default: '+wrapDefault+'px (semua node)');
+  }
+  if(!sel) return;
+  setWidth(sel,(sel.w||sel.__s.w)+dir*WRAP_STEP);
+  flash('lebar node: '+sel.w+'px');
+}
+
+/* ---------- navigasi & edit ---------- */
+function parentOf(t,n,p){ if(t===n)return p||null; for(const c of t.children){const r=parentOf(c,n,t); if(r)return r;} return null; }
+function findNode(t,id){ if(t.id===id)return t; for(const c of t.children){const r=findNode(c,id); if(r)return r;} return null; }
+function gripFor(n){
+  world.querySelectorAll('.grip').forEach(e=>e.remove());
+  if(!n||!n.__s) return;
+  const g=document.createElement('div'); g.className='grip'; g.dataset.grip=n.id;
+  g.title='Tarik untuk melebarkan / mempersempit  ( [  ] )';
+  g.style.left=(n.__x+n.__s.w-4)+'px';
+  g.style.top=(n.__y+3)+'px';
+  g.style.height=Math.max(14,n.__s.h-6)+'px';
+  world.appendChild(g);
+}
+function markSel(){
+  world.querySelectorAll('.node.sel').forEach(e=>e.classList.remove('sel'));
+  if(!sel) return;
+  const el=world.querySelector(`.node[data-id="${sel.id}"]`);
+  if(el) el.classList.add('sel');
+  gripFor(sel);
+}
+/* MEMILIH NODE TIDAK ME-RENDER ULANG. `render()` membuang seluruh elemen `.node` lalu membuatnya
+   lagi; kalau memilih me-render, klik PERTAMA sebuah klik-ganda menghapus elemen yang baru saja
+   diklik, klik KEDUA mendarat di elemen baru, dan spesifikasi DOM menetapkan target `dblclick`
+   sebagai leluhur bersama dari dua target klik itu — yang jadi `BODY`. Handler `dblclick` terpasang di `world`, jadi dia TIDAK PERNAH
+   terpanggil, dan klik dua kali terlihat tidak melakukan apa-apa. Membangun ulang DOM juga
+   membuat caret tidak mungkin bertahan. */
+function select(n){ if(sel===n) return; sel=n; markSel(); }
+function roleFor(n){ const m=roleMap().get(n); return m?m.role:'leaf'; }
+
+function addSibling(){
+  if(!sel||sel===doc) return flash('root tidak punya node sejajar');
+  const p=parentOf(doc,sel,null); if(!p) return;
+  const n=mk(''); p.children.splice(p.children.indexOf(sel)+1,0,n);
+  sel=n; dirty=true; render(); beginEdit();
+}
+function addChild(){
+  if(!sel) return;
+  const role=roleFor(sel);
+  let n;
+  if(role==='root'){
+    n=mk('Sub process baru');
+    // sub process baru ditaruh SEBELUM folder E2E / Additional / Archive
+    const at=sel.children.findIndex(c=>reservedOf(c));
+    sel.children.splice(at<0?sel.children.length:at,0,n);
+    sel.collapsed=false; sel=n; dirty=true; render(); beginEdit(); return;
+  }
+  else if(role==='reserved'&&reservedOf(sel)==='E2E'){
+    n=mk('');
+    flash('test case E2E langsung di folder E2E — satu perjalanan penuh melewati semua sub process alur utama');
+  }
+  else if(role==='process'||role==='reserved'){ n=mk('Entry point baru'); }
+  else if(role==='entry'){
+    // template §1: Additional hanya SYS dan E2E — dependency diuji dengan menjalankan alur aplikasi
+    const add=reservedOf(parentOf(doc,sel,null)||{})==='Additional';
+    n=mk(add?'SYS (0)':'UI (0)');
+    flash(add?'type node SYS dibuat — Additional hanya System Testing dan End to End (r: SYS <-> E2E)':'type node dibuat — test case tidak boleh di luar type node');
+  }
+  else { n=mk(''); }
+  sel.children.push(n); sel.collapsed=false; sel=n; dirty=true; render();
+  if(!n.text) beginEdit();
+}
+function delNode(){
+  if(!sel||sel===doc) return flash('root tidak bisa dihapus');
+  const p=parentOf(doc,sel,null); if(!p) return;
+  const kept=leavesUnder(sel).length;
+  if(kept>1&&!confirm(`Hapus node ini beserta ${kept} test case di bawahnya?`)) return;
+  p.children.splice(p.children.indexOf(sel),1);
+  sel=p; dirty=true; render();
+}
+function cycleRung(){
+  if(!sel||!rungOf(sel)) return flash('bukan type node');
+  const ep=parentOf(doc,sel,null);
+  const add=ep&&reservedOf(parentOf(doc,ep,null)||{})==='Additional';
+  const ring=add?['SYS','E2E']:RUNGS;
+  const cur=rungLabel(sel), i=ring.indexOf(cur);
+  const next=ring[(i+1)%ring.length];
+  sel.text=sel.text.replace(/^[^(]*/, next+' ');
+  dirty=true; render(); flash('rung -> '+next);
+}
+/* Rung sebuah test case: type node di atasnya, atau E2E kalau ia duduk langsung di folder E2E. */
+function leafRung(n){
+  let rung=null;
+  (function up(x){ const p=parentOf(doc,x,null); if(!p)return;
+    if(reservedOf(p)==='E2E'&&parentOf(doc,p,null)===doc){rung='E2E';return;}
+    if(rungOf(p)){rung=rungLabel(p);return;} up(p); })(n);
+  return rung;
+}
+// template §7: ✅ hanya di SYS dan E2E
+const REGRESSION_RUNGS=['SYS','E2E'];
+function toggleReg(){
+  if(!sel||roleFor(sel)!=='leaf') return flash('✅ hanya untuk leaf (test case)');
+  if(!/✅/.test(sel.text)&&!REGRESSION_RUNGS.includes(leafRung(sel)))
+    return flash('✅ regression hanya untuk test case SYS dan E2E');
+  const lines=sel.text.split('\n');
+  lines[0]=/✅/.test(lines[0])?lines[0].replace(/\s*✅\s*/,'').trimEnd():lines[0].trimEnd()+' ✅';
+  sel.text=lines.join('\n'); dirty=true; render();
+}
+function beginEdit(){
+  if(!sel) return;
+  const el=world.querySelector(`.node[data-id="${sel.id}"]`); if(!el) return;
+  const t=el.querySelector('.txt');
+  editing=true; el.classList.add('editing');
+  t.contentEditable='true'; t.spellcheck=false;
+  // Kelas `editing` yang mengembalikan user-select ke `text` baru berlaku setelah gaya dihitung
+  // ulang; fokus dan caret dipasang di frame berikutnya supaya tidak ditolak browser.
+  requestAnimationFrame(()=>{
+    t.focus();
+    const rng=document.createRange(); rng.selectNodeContents(t);
+    const g=getSelection(); g.removeAllRanges(); g.addRange(rng);
+  });
+  const stop=()=>{
+    const v=t.innerText.replace(/\u00a0/g,' ').replace(/\n+$/,'');
+    if(!v.trim()){
+      flash('teks kosong tidak disimpan — node tanpa teks jadi test case palsu di hilir');
+      t.innerText=sel.text;
+    } else { sel.text=v; dirty=true; }
+    editing=false; t.contentEditable='false'; render();
+  };
+  t.addEventListener('blur',stop,{once:true});
+  t.addEventListener('keydown',e=>{
+    if(e.key==='Enter'&&e.shiftKey){ return; }               // baris baru: bundle Int
+    if(e.key==='Enter'){ e.preventDefault(); t.blur(); }
+    if(e.key==='Escape'){ e.preventDefault(); t.innerText=sel.text; t.blur(); }
+    e.stopPropagation();
+  });
+}
+function move(dir){
+  if(!sel) return;
+  const p=parentOf(doc,sel,null);
+  if(dir==='right'&&sel.children.length){ sel.collapsed=false; return select(sel.children[0]); }
+  if(dir==='left'&&p) return select(p);
+  if(!p) return;
+  const sib=p.children, i=sib.indexOf(sel);
+  if(dir==='down'&&i<sib.length-1) return select(sib[i+1]);
+  if(dir==='up'&&i>0) return select(sib[i-1]);
+}
+
+document.addEventListener('keydown',e=>{
+  if(editing) return;
+  if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='s'){ e.preventDefault(); return saveFile(false); }
+  if(e.ctrlKey||e.metaKey||e.altKey) return;
+  const k=e.key;
+  if(k==='Enter'){ e.preventDefault(); return addSibling(); }
+  if(k==='Tab'){ e.preventDefault(); return addChild(); }
+  if(k==='F2'){ e.preventDefault(); return beginEdit(); }
+  if(k==='Delete'){ e.preventDefault(); return delNode(); }
+  if(k===' '){ e.preventDefault(); if(sel&&sel.children.length){sel.collapsed=!sel.collapsed; render();} return; }
+  if(k==='ArrowRight'){ e.preventDefault(); return move('right'); }
+  if(k==='ArrowLeft'){ e.preventDefault(); return move('left'); }
+  if(k==='ArrowUp'){ e.preventDefault(); return move('up'); }
+  if(k==='ArrowDown'){ e.preventDefault(); return move('down'); }
+  if(k==='PageDown'){ e.preventDefault(); autoFit=false; view.y-=vp.getBoundingClientRect().height*0.8; return applyView(); }
+  if(k==='PageUp'){ e.preventDefault(); autoFit=false; view.y+=vp.getBoundingClientRect().height*0.8; return applyView(); }
+  if(k==='Home'){ e.preventDefault(); return fit(); }
+  if(k==='t'||k==='T'){ e.preventDefault(); return cycleRung(); }
+  if(k==='r'||k==='R'){ e.preventDefault(); return toggleReg(); }
+  if(k===']'||k==='}'){ e.preventDefault(); return nudgeWidth(+1,e.shiftKey); }
+  if(k==='['||k==='{'){ e.preventDefault(); return nudgeWidth(-1,e.shiftKey); }
+  if(k==='0'&&sel){ e.preventDefault(); sel.w=null; saveWidths(); render(); return flash('lebar node dikembalikan'); }
+});
+world.addEventListener('click',e=>{
+  // Saat mengedit, klik di dalam teks harus MEMINDAHKAN CARET. Tanpa guard ini handler di bawah
+  // memilih ulang node dan me-render, elemen yang sedang diedit dibuang, dan edit-nya berhenti
+  // di tengah — jadi teks terasa tidak bisa diklik.
+  if(editing) return;
+  const f=e.target.closest('.fold');
+  if(f){ const n=findNode(doc,f.dataset.fold); if(n){n.collapsed=!n.collapsed; render();} return; }
+  const el=e.target.closest('.node');
+  if(el){ const n=findNode(doc,el.dataset.id); if(n) select(n); return; }
+});
+world.addEventListener('dblclick',e=>{
+  if(editing) return;
+  // Jaring pengaman: kalau target sudah naik ke leluhur (bisa terjadi kalau ada yang me-render
+  // di antara dua klik), pakai elemen yang benar-benar ada di bawah kursor.
+  let el=e.target.closest('.node');
+  if(!el){
+    const hit=document.elementFromPoint(e.clientX,e.clientY);
+    el=hit&&hit.closest?hit.closest('.node'):null;
+  }
+  if(!el) return;
+  const n=findNode(doc,el.dataset.id);
+  if(n){ sel=n; markSel(); beginEdit(); }        // TANPA render() — DOM harus tetap utuh
+});
+let lastHit={id:null,t:0};
+world.addEventListener('mousedown',e=>{
+  if(editing) return;
+  const el=e.target.closest('.node'); if(!el) return;
+  const now=Date.now();
+  if(lastHit.id===el.dataset.id && now-lastHit.t<450){
+    lastHit={id:null,t:0};
+    const n=findNode(doc,el.dataset.id);
+    if(n){ e.preventDefault(); sel=n; markSel(); beginEdit(); }
+    return;
+  }
+  lastHit={id:el.dataset.id,t:now};
+});
+
+let grip=null;
+world.addEventListener('mousedown',e=>{
+  const g=e.target.closest('.grip'); if(!g) return;
+  e.preventDefault(); e.stopPropagation();
+  const n=findNode(doc,g.dataset.grip); if(!n) return;
+  grip={n,x0:e.clientX,w0:n.w||n.__s.w};
+});
+addEventListener('mousemove',e=>{ if(!grip) return;
+  setWidth(grip.n,grip.w0+(e.clientX-grip.x0)/view.k); });
+addEventListener('mouseup',()=>{ if(grip){ flash('lebar node: '+grip.n.w+'px'); grip=null; } });
+
+let pan=null;
+vp.addEventListener('mousedown',e=>{ if(e.target.closest('.node,.fold,.grip'))return;
+  pan={x:e.clientX-view.x,y:e.clientY-view.y}; vp.classList.add('pan'); });
+addEventListener('mousemove',e=>{ if(!pan)return; autoFit=false; view.x=e.clientX-pan.x; view.y=e.clientY-pan.y; applyView(); });
+addEventListener('mouseup',()=>{ pan=null; vp.classList.remove('pan'); });
+/* Roda mouse MENGGESER, bukan mem-zoom. Pada draft nyata (218 leaf, tinggi belasan ribu piksel)
+   zoom-dengan-roda membuat peta tidak bisa disusuri: satu-satunya cara turun adalah menarik latar
+   berkali-kali. Zoom pindah ke Ctrl/Cmd + roda, yang juga kebiasaan umum di aplikasi kanvas. */
+vp.addEventListener('wheel',e=>{
+  e.preventDefault(); autoFit=false;
+  if(e.ctrlKey||e.metaKey){
+    const f=e.deltaY<0?1.1:1/1.1, k=Math.min(2.4,Math.max(.15,view.k*f));
+    const r=vp.getBoundingClientRect(), mx=e.clientX-r.left, my=e.clientY-r.top;
+    view.x=mx-(mx-view.x)*(k/view.k); view.y=my-(my-view.y)*(k/view.k); view.k=k;
+    flash('zoom '+Math.round(view.k*100)+'%');
+  } else if(e.shiftKey){
+    view.x-=e.deltaY;                       // Shift+roda = geser mendatar
+  } else {
+    view.y-=e.deltaY; view.x-=e.deltaX;     // roda = geser tegak (dan mendatar di trackpad)
+  }
+  applyView();
+},{passive:false});
+/* fit() versi lama memakai lebar/tinggi TOTAL dan tidak punya batas bawah zoom, jadi pada peta
+   218 leaf hasilnya k ≈ 0.05 — seluruh peta masuk layar tapi tidak ada satu kata pun yang terbaca,
+   dan itulah yang terasa seperti "tidak autofit". Sekarang: batas kiri-atas ikut dihitung, zoom
+   dibatasi minimum supaya tetap terbaca, dan isi diletakkan di tengah viewport. */
+const FIT_MIN_K=0.35;
+/* Tampilan masih hasil fit() selama QA belum menggeser / mem-zoom sendiri. Selama itu, ukuran
+   jendela yang berubah (di Mac: jendela dibesarkan / layar penuh SETELAH peta terbuka) memicu fit
+   ulang — dulu peta tetap di zoom jendela lama, dan itu terasa "kadang tidak autofit". Begitu QA
+   menggeser atau mem-zoom, tampilannya milik QA dan tidak disentuh lagi sampai Home / Rapikan. */
+let autoFit=true, refitRaf=0;
+addEventListener('resize',()=>{
+  if(!autoFit||!doc) return;
+  cancelAnimationFrame(refitRaf); refitRaf=requestAnimationFrame(()=>fit(true));
+});
+function bounds(nodes){
+  return {
+    x0:Math.min(...nodes.map(n=>n.__x)), y0:Math.min(...nodes.map(n=>n.__y)),
+    x1:Math.max(...nodes.map(n=>n.__x+n.__s.w)), y1:Math.max(...nodes.map(n=>n.__y+n.__s.h)),
+  };
+}
+function fit(quiet){
+  const nodes=layout(doc), b=bounds(nodes), r=vp.getBoundingClientRect();
+  const w=(b.x1-b.x0)+48, h=(b.y1-b.y0)+48;
+  const raw=Math.min(r.width/w,r.height/h);
+  view.k=Math.min(1,Math.max(FIT_MIN_K,raw));
+  view.x=24-b.x0*view.k;
+  view.y=Math.max(16,(r.height-h*view.k)/2)-b.y0*view.k;
+  applyView(); autoFit=true;
+  if(raw<FIT_MIN_K&&!quiet) flash('peta besar — zoom ditahan di '+Math.round(view.k*100)
+    +'% supaya terbaca; roda mouse untuk menggeser');
+}
+/* Peta besar dibuka dalam bentuk RINGKAS: cabang di bawah type node dilipat, jadi yang terlihat
+   feature -> sub process / folder -> entry point -> rung beserta jumlah TC-nya. Tanpa ini, membuka draft nyata memunculkan 218
+   node sekaligus dan tidak ada yang bisa dibaca sebelum QA melipat sendiri satu per satu. */
+function overview(){
+  let folded=0;
+  walkRoles(doc,0,false,(x,role)=>{ if(role==='type'&&x.children.length){ x.collapsed=true; folded++; } });
+  return folded;
+}
+
+/* ---------- .mm ---------- */
+function esc(s){
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/\r\n/g,'\n').replace(/\r/g,'\n')
+    .replace(/\n/g,'&#10;');            // WAJIB: newline literal jadi spasi di parser XML
+}
+function toMM(){
+  const roles=roleMap();
+  const total=allLeaves().length;
+  const out=['<?xml version="1.0" encoding="UTF-8"?>','<map version="freeplane 1.9.0">'];
+  let pageNo=0;
+  (function w(n,depth,underType,indent,parentRole){
+    const info=roles.get(n)||{role:'leaf'};
+    let text=n.text, bg=null;
+    if(info.role==='root'){
+      text=/\(Total:\s*\d+\s*TCs?\)/i.test(text)
+        ? text.replace(/\(Total:\s*\d+\s*TCs?\)/i,`(Total: ${total} TCs)`)
+        : `${text} (Total: ${total} TCs)`;
+    } else if(info.role==='process'){
+      text=`${nameOf(n)} (${leavesUnder(n).length})`;      // sub process tidak bernomor
+      bg=SECTION_BG;
+    } else if(info.role==='reserved'){
+      text=`${nameOf(n)} (${leavesUnder(n).length})`;      // tidak bernomor; nama Testr-nya dipertahankan
+      bg=SECTION_BG;
+    } else if(info.role==='entry'){
+      // entry point sub process dinomori berlanjut satu feature = jumlah page; Additional /
+      // Archive tidak bernomor
+      const no=parentRole==='process'?`${++pageNo}. `:'';
+      text=`${no}${nameOf(n)} (${leavesUnder(n).length})`;
+      bg=ENTRY_BG;
+    } else if(info.role==='type'){
+      text=`${rungLabel(n)} (${leavesUnder(n).length})`;
+      bg=TYPE_BG;
+    }
+    const pad='  '.repeat(indent);
+    let attr=`TEXT="${esc(text)}"`;
+    if(bg) attr+=` BACKGROUND_COLOR="${bg}"`;
+    if(!n.children.length){ out.push(`${pad}<node ${attr}/>`); return; }
+    out.push(`${pad}<node ${attr}>`);
+    n.children.forEach(c=>w(c,depth+1,underType||info.role==='type',indent+1,info.role));
+    out.push(`${pad}</node>`);
+  })(doc,0,false,1,null);
+  out.push('</map>');
+  return out.join('\n')+'\n';
+}
+function fromMM(text){
+  const x=new DOMParser().parseFromString(text,'text/xml');
+  if(x.querySelector('parsererror')) throw new Error('File .mm tidak terbaca sebagai XML');
+  const first=x.querySelector('map > node');
+  if(!first) throw new Error('Tidak ada node akar di bawah <map>');
+  const walk=el=>{
+    const kids=[...el.querySelectorAll(':scope > node')];
+    let text=mmNodeText(el);
+    if(!kids.length && !text.includes('\u2705') && [...el.querySelectorAll(':scope > icon')]
+        .some(i=>MM_OK_ICONS.has((i.getAttribute('BUILTIN')||'').toLowerCase()))){
+      const nl=text.indexOf('\n');                 // ✅ di ujung baris PERTAMA (template §7)
+      text=nl<0 ? `${text} \u2705` : `${text.slice(0,nl)} \u2705${text.slice(nl)}`;
+    }
+    const n=mk(text);
+    kids.forEach(c=>n.children.push(walk(c)));
+    return n;
+  };
+  return walk(first);
+}
+/* Teks satu node `.mm` seperti consumer membacanya (draft-template.md §2): `TEXT`, atau — kalau
+   kosong — `<richcontent TYPE="NODE">` milik node itu sendiri, blok XHTML menjadi baris. Tidak
+   pernah NOTE/DETAILS: itu catatan penulis, bukan judul test case. */
+const MM_OK_ICONS=new Set(['button_ok','checked','yes']);
+const MM_BLOCK=new Set(['p','br','li','div','tr','h1','h2','h3','h4','h5','h6']);
+function mmNodeText(el){
+  const t=(el.getAttribute('TEXT')||'').trim();
+  if(t) return t;
+  for(const rc of el.querySelectorAll(':scope > richcontent')){
+    if((rc.getAttribute('TYPE')||'NODE').toUpperCase()!=='NODE') continue;
+    const buf=[];
+    (function flat(x){
+      if(x.nodeType===3||x.nodeType===4){ buf.push(x.nodeValue); return; }
+      if(x.nodeType!==1) return;
+      const tag=(x.localName||'').toLowerCase();
+      if(MM_BLOCK.has(tag)) buf.push('\n');
+      x.childNodes.forEach(flat);
+      if(MM_BLOCK.has(tag)) buf.push('\n');
+    })(rc);
+    return buf.join('').split('\n').map(s=>s.trim()).filter(Boolean).join('\n');
+  }
+  return '';
+}
+
+/* ---------- .mup (MindMup) — dibaca saja, Simpan selalu menulis .mm ---------- */
+/* Dua bentuk JSON MindMup:
+     - formatVersion 3: {formatVersion:3, id:'root', ideas:{<rank>: <akar>, ...}} — objek teratas
+       hanya pembungkus, akarnya di `ideas`. MindMup mengizinkan lebih dari satu akar (ide yang
+       mengambang); draft hanya punya SATU, jadi akar ganda DITOLAK dengan nama-namanya. Memilih
+       salah satu diam-diam berarti test case di akar lain hilang tanpa laporan.
+     - formatVersion 1/2 (lama): objek teratas itu sendiri akarnya.
+   Teks node = `title`, multi-baris dipertahankan (leaf INT). Urutan anak mengikuti MindMup
+   (`sortedSubIdeas`): rank positif (sisi kanan) naik, lalu rank nol/negatif (sisi kiri) naik
+   menurut nilai mutlaknya. Warna, catatan, link dan lampiran tidak dibawa — sama seperti `.mm`,
+   warna ditulis ulang dari peran node saat menyimpan. */
+// `\s` di regex JS juga mencakup BOM (U+FEFF), jadi berkas ber-BOM ikut dikenali dan dibersihkan.
+function isMupText(text){ return /^\s*\{/.test(String(text)); }
+function mupKids(idea){
+  const ideas=idea&&idea.ideas;
+  if(!ideas||typeof ideas!=='object') return [];
+  const ks=Object.keys(ideas).filter(k=>!isNaN(parseFloat(k))&&ideas[k]&&typeof ideas[k]==='object');
+  const by=(a,b)=>Math.abs(parseFloat(a))-Math.abs(parseFloat(b));
+  return ks.filter(k=>parseFloat(k)>0).sort(by)
+    .concat(ks.filter(k=>!(parseFloat(k)>0)).sort(by)).map(k=>ideas[k]);
+}
+function mupTitle(idea){
+  return String(idea.title==null?'':idea.title).replace(/\r\n?/g,'\n').trim();
+}
+function fromMup(text){
+  let j;
+  try{ j=JSON.parse(String(text).replace(/^\s+/,'')); }
+  catch(e){ throw new Error('File .mup tidak terbaca sebagai JSON: '+e.message); }
+  if(!j||typeof j!=='object'||Array.isArray(j)) throw new Error('File .mup bukan peta MindMup');
+  let root=j;
+  if(Number(j.formatVersion)>=3){
+    const roots=mupKids(j);
+    if(!roots.length) throw new Error('Peta .mup kosong — tidak ada node akar');
+    if(roots.length>1){
+      const names=roots.map(r=>{ const t=mupTitle(r).split('\n')[0]||'(tanpa teks)';
+        return '"'+(t.length>50?t.slice(0,50)+'…':t)+'"'; });
+      throw new Error(`Peta .mup punya ${roots.length} node akar: ${names.join(', ')}.\n`
+        +'Draft hanya punya satu akar (feature). Gabungkan atau hapus ide yang mengambang di '
+        +'MindMup, lalu buka lagi.');
+    }
+    root=roots[0];
+  } else if(!('title' in j) && !('ideas' in j)){
+    throw new Error('File .mup bukan peta MindMup (tidak ada "title" maupun "ideas")');
+  }
+  const walk=idea=>{
+    const n=mk(mupTitle(idea));
+    mupKids(idea).forEach(c=>n.children.push(walk(c)));
+    return n;
+  };
+  return walk(root);
+}
+
+/* ---------- pra-periksa ---------- */
+function precheck(){
+  const rows=[]; badSet=new Set();
+  const roles=roleMap();
+  const seen=new Map();
+  const bad=(n,msg)=>{ rows.push(['err',msg]); badSet.add(n.id); };
+  // folder E2E / Additional / Archive: masing-masing tepat satu, boleh kosong
+  const tops=doc?doc.children:[];
+  Object.values(RESERVED).forEach(label=>{
+    const k=tops.filter(c=>reservedOf(c)===label).length;
+    if(!k) rows.push(['err',`folder "${label}" tidak ada — setiap draft punya E2E, Additional dan Archive di samping sub process, boleh kosong`]);
+    if(k>1) rows.push(['err',`folder "${label}" ada ${k} — satu per draft`]);
+  });
+  if(!tops.some(c=>!reservedOf(c))) rows.push(['err','tidak ada sub process — case sebuah feature tinggal di sub process-nya']);
+  const owner=new Map();
+  roles.forEach((info,n)=>{
+    const base=nameOf(n);
+    if(info.role==='process'||info.role==='entry'){
+      if(RUNG_WORDS.includes(base.split('(')[0].trim().toUpperCase()))
+        bad(n,`${info.role==='process'?'sub process':'entry point'} "${base}" bernama seperti rung — akan dibaca sebagai type node`);
+      if(!leavesUnder(n).length) bad(n,`${info.role==='process'?'sub process':'entry point'} "${base}" tidak punya test case di bawah type node mana pun`);
+    }
+    if(info.role==='entry'){
+      const parent=parentOf(doc,n,null);
+      if(parent&&parent!==doc&&roles.get(parent)&&roles.get(parent).role==='process'){
+        const k=base.toLowerCase(), f=nameOf(parent);
+        if(owner.has(k)&&owner.get(k)!==f) bad(n,`entry point "${base}" ada di dua sub process ("${owner.get(k)}" dan "${f}") — satu entry point milik SATU sub process`);
+        if(!owner.has(k)) owner.set(k,f);
+      }
+    }
+    if(info.role==='type'){
+      // folder teratas type node ini — sub process, Additional atau Archive — di kedalaman berapa pun ia duduk
+      let folder=n, up=parentOf(doc,n,null);
+      while(up&&up!==doc){ folder=up; up=parentOf(doc,up,null); }
+      const r=rungLabel(n), role=reservedOf(folder);
+      // type node E2E di sub process sah di sini: case dasar Testr tinggal di section-nya; case End to End BARU di
+      // sub process ditolak emit, satu-satunya rumah aturan itu (editor tidak bisa membedakan keduanya)
+      if((r==='UI'||r==='INT')&&role==='Additional')
+        bad(n,`type node ${r} di folder Additional — Additional hanya System Testing dan End to End: dependency diuji dengan menjalankan alur aplikasi dan membaca dampaknya di sistem luar, tampilan dan interaksi komponennya diuji di halaman tempat ia muncul`);
+    }
+    if(info.role==='type'&&!leavesUnder(n).length) bad(n,`type node "${n.text}" tidak punya leaf — mendeklarasikan rung tanpa isi`);
+    if(info.role==='misplaced'){
+      const p=parentOf(doc,n,null);
+      if(p&&p.children&&reservedOf(p)==='E2E'&&parentOf(doc,p,null)===doc)
+        bad(n,`node "${cleanTitle(n.text).slice(0,44)}" di folder E2E bukan test case — folder E2E berisi test case langsung, tanpa entry point dan type node`);
+      else bad(n,`node "${cleanTitle(n.text).slice(0,44)}" berada di luar type node — di bawah entry point hanya UI · INT · SYS`);
+    }
+  });
+  allLeaves().forEach(n=>{
+    const t=cleanTitle(n.text);
+    if(!t){ rows.push(['err','ada leaf tanpa teks']); badSet.add(n.id); return; }
+    if(seen.has(t)){
+      rows.push(['err',`judul duplikat: "${t.slice(0,52)}" — consumer meng-collapse jadi satu, salah satunya hilang`]);
+      badSet.add(n.id); badSet.add(seen.get(t));
+    } else seen.set(t,n.id);
+    const lines=n.text.split('\n').filter(s=>s.trim());
+    const rung=leafRung(n);
+    if(/✅/.test(n.text)&&rung&&!REGRESSION_RUNGS.includes(rung)){
+      rows.push(['err',`✅ regression di case ${rung} "${t.slice(0,44)}" — tanda regression hanya untuk SYS dan E2E (lepas dengan r)`]); badSet.add(n.id);
+    }
+    if(rung==='INT'){
+      const steps=(lines.length>1&&!/^\s*\d+[.)]/.test(lines[0]))?lines.slice(1):lines;   // baris pertama tanpa nomor = judul
+      if(steps.length>MAX_BUNDLE){ rows.push(['err',`bundle INT "${t.slice(0,40)}" ${steps.length} langkah — consumer membaca ${MAX_BUNDLE} pertama`]); badSet.add(n.id); }
+      if(lines.length===1&&(n.text.match(/(?:^|\s)\d+\.\s/g)||[]).length>1){
+        rows.push(['err',`bundle INT "${t.slice(0,40)}" terlipat jadi satu baris — tulis ulang tiap langkah di barisnya sendiri (Shift+Enter)`]); badSet.add(n.id);
+      }
+    } else if(lines.length>1){
+      rows.push(['err',`leaf ${rung||'?'} "${t.slice(0,40)}" multi-baris — hanya INT yang boleh; baris setelah yang pertama akan hilang`]);
+      badSet.add(n.id);
+    }
+  });
+  const body=document.getElementById('pBody');
+  body.innerHTML = rows.length
+    ? rows.map(r=>`<div class="row ${r[0]==='err'?'err':''}">${r[1].replace(/</g,'&lt;')}</div>`).join('')
+    : '<div class="row ok">Tidak ada temuan struktur. Tetap jalankan Prove — pra-periksa ini tidak memeriksa penamaan, coverage, dan basis.</div>';
+  document.getElementById('panel').classList.add('on');
+  render();
+  flash(rows.length?`${rows.length} temuan`:'bersih');
+}
+
+/* ---------- berkas ---------- */
+const FS = 'showSaveFilePicker' in window;
+function flash(t){ statusEl.textContent=t; clearTimeout(flash.t); flash.t=setTimeout(()=>statusEl.textContent=dirty?'belum disimpan':'siap',3200); }
+function dl(name,text){
+  const b=new Blob([text],{type:'application/xml'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(b); a.download=name;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),1500);
+}
+/* Nama berkas = `Draft_<unit>_v<versi>.mm` (`make_control.draft_name`). Berkas yang dibuka sudah
+   membawanya, jadi namanya DIPAKAI ULANG — editan QA tetap di versinya; tanpa nama itu ia disusun dari
+   teks root `<FEATURE> v<versi> (Total: N TCs)`: FEATURE-nya huruf kecil, spasi -> `_`, seperti
+   `make_control.unit_of`, lalu versinya. `&` dan `-` dipertahankan: keduanya bagian nama feature yang
+   dicari tool berikutnya. Root tanpa versi -> `Draft_<unit>.mm`. */
+let openedName='';
+function safeName(){
+  if(/^Draft_.+\.mm$/i.test(openedName)) return openedName;
+  if(/^Draft_.+\.mup$/i.test(openedName)) return openedName.replace(/\.mup$/i,'.mm');
+  let t=(doc&&doc.text||'draft').replace(/\(Total:[^)]*\)/i,'').trim();
+  const v=t.match(/\s+v(\d+\.\d+)$/i); if(v) t=t.slice(0,v.index);
+  return 'Draft_'+t.replace(/[^\w\-&]+/g,'_').replace(/^_+|_+$/g,'').toLowerCase()+(v?'_v'+v[1]:'')+'.mm';
+}
+async function saveFile(askPath){
+  const text=toMM();
+  try{
+    if(FS){
+      if(askPath||!handle){
+        handle=await window.showSaveFilePicker({suggestedName:safeName(),
+          types:[{description:'Mind map (.mm)',accept:{'application/xml':['.mm']}}]});
+      }
+      const w=await handle.createWritable(); await w.write(text); await w.close();
+      dirty=false; flash('tersimpan: '+handle.name);
+      return;
+    }
+  }catch(err){ if(err&&err.name==='AbortError') return flash('dibatalkan'); flash('gagal simpan: '+err.message); return; }
+  dl(safeName(),text); dirty=false;
+  flash('terunduh — browser ini tidak bisa menimpa berkas asli');
+}
+async function openFile(){
+  try{
+    if('showOpenFilePicker' in window){
+      // TANPA filter tipe: di macOS berkas di luar filter tampil abu-abu dan tidak bisa dipilih
+      // tanpa mengganti format dulu — dan draft nyata sering TANPA ekstensi (`Dashboard`,
+      // `test mup`). Format dikenali dari ISI berkas (`load`), bukan dari ekstensinya.
+      const [h]=await window.showOpenFilePicker({excludeAcceptAllOption:false});
+      const f=await h.getFile();
+      const fmt=load(await f.text(),f.name);
+      // Handle hanya dipegang kalau `.mm` BERHASIL dibuka. Gagal dibuka -> berkas itu tidak boleh
+      // jadi target Simpan (dulu: buka `.mup` gagal, lalu Ctrl+S menimpa `.mup` itu dengan peta
+      // sebelumnya). `.mup` -> Simpan meminta nama `.mm` baru; `.mup` aslinya tidak disentuh.
+      if(fmt) handle = fmt==='mm' ? h : null;
+      return;
+    }
+  }catch(err){ if(err&&err.name==='AbortError') return; }
+  document.getElementById('fileIn').click();
+}
+/* Mengembalikan 'mm' / 'mup' kalau berhasil, null kalau gagal — peta dan nama berkas sebelumnya
+   tidak berubah saat gagal. */
+function load(text,name){
+  try{
+    const fmt=isMupText(text)?'mup':'mm';
+    const parsed=fmt==='mup'?fromMup(text):fromMM(text);
+    openedName=name||'';
+    doc=parsed; sel=doc; uid=0;
+    (function fix(n){ n.id=nid(); n.children=n.children||[]; n.children.forEach(fix); })(doc);
+    badSet=new Set(); dirty=false;
+    applyWidths();
+    const total=allLeaves().length;
+    let folded=0;
+    if(total>60) folded=overview();
+    document.getElementById('panel').classList.remove('on');
+    render(); fit();
+    if(folded) flash(total+' TC · '+folded+' rung dilipat supaya terbaca — Space membuka satu, '
+      +'"Buka semua cabang" membuka semuanya');
+    flash(fmt==='mup'
+      ? 'terbuka: '+name+' (.mup) — Simpan menulis .mm baru, .mup aslinya tidak ditimpa'
+      : 'terbuka: '+name);
+    return fmt;
+  }catch(err){ flash('gagal: '+err.message); alert('File tidak bisa dibaca.\n'+err.message); return null; }
+}
+document.getElementById('fileIn').onchange=e=>{
+  const f=e.target.files[0]; if(!f) return;
+  const r=new FileReader(); r.onload=()=>{ if(load(r.result,f.name)) handle=null; };
+  r.readAsText(f); e.target.value='';
+};
+document.getElementById('bOpen').onclick=openFile;
+document.getElementById('bSave').onclick=()=>saveFile(false);
+document.getElementById('bSaveAs').onclick=()=>saveFile(true);
+document.getElementById('bCheck').onclick=precheck;
+document.getElementById('bNarrow').onclick=()=>nudgeWidth(-1,false);
+document.getElementById('bWider').onclick=()=>nudgeWidth(+1,false);
+document.getElementById('bFit').onclick=fit;
+document.getElementById('bAll').onclick=()=>{ (function w(n){n.collapsed=false;n.children.forEach(w);})(doc); render(); fit(); };
+document.getElementById('pClose').onclick=()=>document.getElementById('panel').classList.remove('on');
+document.getElementById('hToggle').onclick=e=>{
+  const h=document.getElementById('help'); h.classList.toggle('min');
+  e.target.textContent=h.classList.contains('min')?'+':'−';
+};
+addEventListener('beforeunload',e=>{ if(dirty){ e.preventDefault(); e.returnValue=''; } });
+
+/* ---------- pemulihan lokal (bukan pengganti Simpan) ---------- */
+function autosave(){
+  try{ localStorage.setItem('drafttc:last',JSON.stringify(doc)); }catch(e){}
+}
+function starter(){
+  const r=mk('FEATURE (Total: 0 TCs)');
+  const s=mk('Sub process (0)');
+  const e=mk('1. Page "namaScreen" (0)');
+  const ui=mk('UI (0)'); ui.children=[mk('Verify UI page "namaScreen"')];
+  e.children=[ui]; s.children=[e];
+  r.children=[s, mk('E2E (0)'), mk('Additional (0)'), mk('Archive (0)')];
+  return r;
+}
+(function boot(){
+  let restored=null;
+  try{ const raw=localStorage.getItem('drafttc:last'); if(raw) restored=JSON.parse(raw); }catch(e){}
+  doc = restored || starter();
+  (function fix(n){ n.id=nid(); n.children=n.children||[]; n.children.forEach(fix); })(doc);
+  sel=doc; render(); fit();
+  if(!FS) flash('browser ini tidak bisa menimpa berkas — Simpan akan mengunduh');
+  else if(restored) flash('peta terakhir dipulihkan — Buka .mm / .mup untuk berkas nyata');
+})();
+</script>
+</html>
